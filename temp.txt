@@ -1,0 +1,92 @@
+import { ChangeEvent, useEffect, useState } from 'react';
+import { useTodos, useTodosIds } from '../services/queries';
+import { useUpdateTodo } from '../services/mutations';
+import { Todo } from '../types/todo';
+
+const Todos = () => {
+  const todoIdsQuery = useTodosIds();
+  const getTodosQuery = useTodos(todoIdsQuery.data);
+  const updateTodoMutation = useUpdateTodo();
+
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
+
+  const toggleTodoChecked = (data: Todo, isChecked: boolean) => {
+    setUpdatingId(data.id);
+    updateTodoMutation.mutate({
+      ...data,
+      checked: isChecked
+    })
+  }
+
+  useEffect(() => {
+    //If the toggleCheck mutation is done working we can make it appear on the screen again
+    if (!updateTodoMutation.isPending) {
+      setUpdatingId(null);
+    }
+  }, [updateTodoMutation.status])
+
+  return (
+    <ul>
+      {getTodosQuery.map(({ data, isError, isPending }) => (
+        isPending ? <p>Loading...</p> :
+          isError ? <p>error...</p> :
+            <div style={{ display: 'flex', gap: '20px' }}>
+              <li key={data.id}>
+                <div>Id: {data.id}</div>
+                <div>Title: {data.title}</div>
+                <div>Description: {data.description}</div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  {
+                    updatingId === data.id ? <span>Updating...</span> :
+                      <input
+                        type="checkbox" checked={data.checked}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => toggleTodoChecked(data, e.target.checked)} />
+                  }
+
+                  <p>is checked? {data.checked + ''}</p>
+                </div>
+              </li>
+              <form>
+                
+              </form>
+            </div>
+      ))}
+    </ul>
+  )
+}
+
+export default Todos
+
+
+
+export const useCreateTodoOptimistically = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: Todo) => createTodo(data),
+    onMutate: async (newTodo: Todo) => {
+      await queryClient.cancelQueries({
+        queryKey: ['todos']
+      });
+
+      const previousTodo = queryClient.getQueryData<Todo>(['todos']);
+
+      queryClient.setQueryData(['todos'], newTodo.id);
+
+      return { previousTodo };
+    },
+    onError: (err, editedTodo, context) => {
+      if (context?.previousTodo) {
+        queryClient.setQueryData(
+          ['todos'],
+          context.previousTodo
+        );
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['todos']
+      });
+    }
+  });
+};
